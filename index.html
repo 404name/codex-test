@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>拉杆弹珠机</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: radial-gradient(circle at top, #0d1b2a, #081018 70%);
+      color: #e8f1ff;
+    }
+    .machine {
+      width: min(92vw, 420px);
+      padding: 18px;
+      border-radius: 16px;
+      background: linear-gradient(145deg, #1b2942, #101a2f);
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+      display: grid;
+      gap: 12px;
+      justify-items: center;
+    }
+    #board {
+      width: 100%;
+      height: auto;
+      border-radius: 10px;
+      border: 2px solid #78a8ff;
+      background: linear-gradient(#0a1322, #0e1a2e);
+    }
+    #launchBtn {
+      width: 100%;
+      border: none;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #ffd44d, #ff9f1c);
+      color: #1f1300;
+      font-size: 1.05rem;
+      font-weight: 800;
+      padding: 12px 16px;
+      cursor: pointer;
+      transition: transform 120ms ease, filter 120ms ease;
+    }
+    #launchBtn:hover:not(:disabled) {
+      transform: translateY(-2px);
+      filter: brightness(1.08);
+    }
+    #launchBtn:disabled {
+      cursor: not-allowed;
+      opacity: 0.65;
+    }
+    #status {
+      margin: 0;
+      min-height: 1.4em;
+      text-align: center;
+      font-weight: 700;
+      letter-spacing: 0.2px;
+    }
+    .tips {
+      margin: 0;
+      font-size: 0.86rem;
+      opacity: 0.8;
+      text-align: center;
+      line-height: 1.4;
+    }
+  </style>
+</head>
+<body>
+  <main class="machine">
+    <canvas id="board" width="380" height="520" aria-label="弹珠机游戏画布"></canvas>
+    <button id="launchBtn">拉杆发射弹珠</button>
+    <p id="status">准备就绪：按下按钮开始。</p>
+    <p class="tips">简化规则：弹珠落入中间高分槽判定“中奖”，其它槽判定“未中”。</p>
+  </main>
+
+  <script>
+    const canvas = document.getElementById('board');
+    const ctx = canvas.getContext('2d');
+    const launchBtn = document.getElementById('launchBtn');
+    const statusEl = document.getElementById('status');
+
+    const board = {
+      width: canvas.width,
+      height: canvas.height,
+      gravity: 0.18,
+      pegs: [],
+      slots: [
+        { x: 20, w: 80, reward: 2 },
+        { x: 100, w: 90, reward: 5 },
+        { x: 190, w: 90, reward: 10, jackpot: true },
+        { x: 280, w: 80, reward: 5 },
+      ],
+    };
+
+    const ball = {
+      x: board.width / 2,
+      y: 38,
+      vx: 0,
+      vy: 0,
+      r: 7,
+      active: false,
+    };
+
+    let score = 0;
+    let pullAnim = 0;
+
+    function setupPegs() {
+      board.pegs.length = 0;
+      for (let row = 0; row < 8; row += 1) {
+        const y = 105 + row * 44;
+        const offset = row % 2 === 0 ? 0 : 20;
+        for (let x = 45 + offset; x < board.width - 20; x += 40) {
+          board.pegs.push({ x, y, r: 5 });
+        }
+      }
+    }
+
+    function drawMachine() {
+      ctx.clearRect(0, 0, board.width, board.height);
+
+      ctx.fillStyle = '#1f3a66';
+      ctx.fillRect(0, 0, board.width, 68);
+      ctx.fillStyle = '#8dc0ff';
+      ctx.font = '700 20px "Microsoft YaHei"';
+      ctx.textAlign = 'center';
+      ctx.fillText('拉杆弹珠机', board.width / 2, 42);
+
+      board.pegs.forEach((peg) => {
+        ctx.beginPath();
+        ctx.arc(peg.x, peg.y, peg.r, 0, Math.PI * 2);
+        ctx.fillStyle = '#b8d1ff';
+        ctx.fill();
+      });
+
+      const floorY = board.height - 82;
+      ctx.fillStyle = '#152743';
+      ctx.fillRect(0, floorY, board.width, 82);
+
+      board.slots.forEach((slot) => {
+        ctx.fillStyle = slot.jackpot ? '#ffd44d' : '#7bb1ff';
+        ctx.fillRect(slot.x, floorY, slot.w, 82);
+        ctx.strokeStyle = '#203c6b';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(slot.x, floorY, slot.w, 82);
+        ctx.fillStyle = '#10203a';
+        ctx.font = '700 16px sans-serif';
+        ctx.fillText(slot.jackpot ? '大奖' : `${slot.reward}分`, slot.x + slot.w / 2, floorY + 45);
+      });
+
+      ctx.fillStyle = '#95bdfc';
+      ctx.font = '700 14px sans-serif';
+      ctx.fillText(`总得分：${score}`, board.width / 2, board.height - 6);
+
+      // 拉杆视觉反馈（点击时压缩）
+      const leverX = board.width - 18;
+      const leverTop = 82 + pullAnim * 10;
+      const leverBottom = 155 + pullAnim * 10;
+      ctx.strokeStyle = '#f3b23e';
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.moveTo(leverX, leverTop);
+      ctx.lineTo(leverX, leverBottom);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(leverX, leverBottom + 9, 8, 0, Math.PI * 2);
+      ctx.fillStyle = '#ffcf5f';
+      ctx.fill();
+
+      if (ball.active) {
+        ctx.beginPath();
+        ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
+        ctx.fillStyle = '#ff6a88';
+        ctx.shadowColor = 'rgba(255,106,136,0.6)';
+        ctx.shadowBlur = 12;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+    }
+
+    function launchBall() {
+      if (ball.active) return;
+      ball.active = true;
+      ball.x = board.width / 2 + (Math.random() - 0.5) * 26;
+      ball.y = 38;
+      ball.vx = (Math.random() - 0.5) * 1.6;
+      ball.vy = 1.2;
+      pullAnim = 1;
+      statusEl.textContent = '弹珠已发射，等待落点...';
+      launchBtn.disabled = true;
+      setTimeout(() => {
+        pullAnim = 0;
+      }, 120);
+    }
+
+    function settleResult() {
+      const floorY = board.height - 82;
+      const slot = board.slots.find((item) => ball.x >= item.x && ball.x <= item.x + item.w);
+      let message = '未中，再试一次！';
+      if (slot) {
+        score += slot.reward;
+        if (slot.jackpot) {
+          message = `🎉 中奖！获得大奖 +${slot.reward} 分`;
+        } else {
+          message = `命中得分槽：+${slot.reward} 分`;
+        }
+      }
+      statusEl.textContent = `${message}（当前 ${score} 分）`;
+      ball.active = false;
+      ball.y = floorY - ball.r;
+      launchBtn.disabled = false;
+    }
+
+    function updateBall() {
+      if (!ball.active) return;
+
+      ball.vy += board.gravity;
+      ball.x += ball.vx;
+      ball.y += ball.vy;
+
+      if (ball.x < ball.r || ball.x > board.width - ball.r) {
+        ball.vx *= -0.7;
+        ball.x = Math.max(ball.r, Math.min(board.width - ball.r, ball.x));
+      }
+
+      board.pegs.forEach((peg) => {
+        const dx = ball.x - peg.x;
+        const dy = ball.y - peg.y;
+        const dist = Math.hypot(dx, dy);
+        const minDist = ball.r + peg.r;
+        if (dist < minDist) {
+          const nx = dx / dist;
+          const ny = dy / dist;
+          const overlap = minDist - dist;
+          ball.x += nx * overlap;
+          ball.y += ny * overlap;
+          const dot = ball.vx * nx + ball.vy * ny;
+          ball.vx -= 1.7 * dot * nx;
+          ball.vy -= 1.7 * dot * ny;
+          ball.vx += (Math.random() - 0.5) * 0.35;
+          ball.vy = Math.max(ball.vy, 0.4);
+        }
+      });
+
+      if (ball.y >= board.height - 82 - ball.r) {
+        settleResult();
+      }
+    }
+
+    function tick() {
+      updateBall();
+      drawMachine();
+      requestAnimationFrame(tick);
+    }
+
+    setupPegs();
+    drawMachine();
+    tick();
+
+    launchBtn.addEventListener('click', launchBall);
+  </script>
+</body>
+</html>
