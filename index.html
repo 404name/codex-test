@@ -18,7 +18,7 @@
       color: #e8f1ff;
     }
     .machine {
-      width: min(92vw, 420px);
+      width: min(94vw, 430px);
       padding: 18px;
       border-radius: 16px;
       background: linear-gradient(145deg, #1b2942, #101a2f);
@@ -33,6 +33,14 @@
       border-radius: 10px;
       border: 2px solid #78a8ff;
       background: linear-gradient(#0a1322, #0e1a2e);
+    }
+    .stats {
+      width: 100%;
+      display: flex;
+      justify-content: space-between;
+      font-weight: 700;
+      font-size: 0.95rem;
+      color: #a9ccff;
     }
     #launchBtn {
       width: 100%;
@@ -64,18 +72,22 @@
     .tips {
       margin: 0;
       font-size: 0.86rem;
-      opacity: 0.8;
+      opacity: 0.82;
       text-align: center;
-      line-height: 1.4;
+      line-height: 1.45;
     }
   </style>
 </head>
 <body>
   <main class="machine">
-    <canvas id="board" width="380" height="520" aria-label="弹珠机游戏画布"></canvas>
-    <button id="launchBtn">拉杆发射弹珠</button>
+    <canvas id="board" width="390" height="560" aria-label="弹珠机游戏画布"></canvas>
+    <div class="stats">
+      <span id="ammoText">剩余弹珠：15</span>
+      <span id="scoreText">总得分：0</span>
+    </div>
+    <button id="launchBtn">拉杆发射弹珠（消耗1颗）</button>
     <p id="status">准备就绪：按下按钮开始。</p>
-    <p class="tips">简化规则：弹珠落入中间高分槽判定“中奖”，其它槽判定“未中”。</p>
+    <p class="tips">真实玩法简化：每次发射消耗 1 颗弹珠；底部有得分区和漏球区（0分）；命中得分区后会按区间随机给分。</p>
   </main>
 
   <script>
@@ -83,23 +95,32 @@
     const ctx = canvas.getContext('2d');
     const launchBtn = document.getElementById('launchBtn');
     const statusEl = document.getElementById('status');
+    const ammoText = document.getElementById('ammoText');
+    const scoreText = document.getElementById('scoreText');
 
     const board = {
       width: canvas.width,
       height: canvas.height,
-      gravity: 0.18,
+      gravity: 0.22,
       pegs: [],
+      walls: [
+        { x: 18, y: 95, w: 12, h: 420 },
+        { x: 360, y: 95, w: 12, h: 420 },
+      ],
       slots: [
-        { x: 20, w: 80, reward: 2 },
-        { x: 100, w: 90, reward: 5 },
-        { x: 190, w: 90, reward: 10, jackpot: true },
-        { x: 280, w: 80, reward: 5 },
+        { x: 20, w: 42, label: '漏球', range: [0, 0], miss: true },
+        { x: 62, w: 48, label: '低分', range: [10, 25] },
+        { x: 110, w: 58, label: '中分', range: [20, 45] },
+        { x: 168, w: 54, label: '漏球', range: [0, 0], miss: true },
+        { x: 222, w: 58, label: '高分', range: [40, 80] },
+        { x: 280, w: 52, label: '大奖', range: [60, 120], jackpot: true },
+        { x: 332, w: 40, label: '漏球', range: [0, 0], miss: true },
       ],
     };
 
     const ball = {
       x: board.width / 2,
-      y: 38,
+      y: 56,
       vx: 0,
       vy: 0,
       r: 7,
@@ -107,28 +128,46 @@
     };
 
     let score = 0;
+    let ammo = 15;
     let pullAnim = 0;
+    let round = 0;
 
     function setupPegs() {
       board.pegs.length = 0;
-      for (let row = 0; row < 8; row += 1) {
-        const y = 105 + row * 44;
+      for (let row = 0; row < 9; row += 1) {
+        const y = 120 + row * 42;
         const offset = row % 2 === 0 ? 0 : 20;
-        for (let x = 45 + offset; x < board.width - 20; x += 40) {
+        for (let x = 48 + offset; x < board.width - 30; x += 40) {
           board.pegs.push({ x, y, r: 5 });
         }
       }
+    }
+
+    function randomInRange(min, max) {
+      return Math.floor(Math.random() * (max - min + 1)) + min;
+    }
+
+    function updateHud() {
+      ammoText.textContent = `剩余弹珠：${ammo}`;
+      scoreText.textContent = `总得分：${score}`;
+      launchBtn.textContent = ammo > 0 ? '拉杆发射弹珠（消耗1颗）' : '弹珠已用完';
+      launchBtn.disabled = ball.active || ammo <= 0;
     }
 
     function drawMachine() {
       ctx.clearRect(0, 0, board.width, board.height);
 
       ctx.fillStyle = '#1f3a66';
-      ctx.fillRect(0, 0, board.width, 68);
+      ctx.fillRect(0, 0, board.width, 78);
       ctx.fillStyle = '#8dc0ff';
-      ctx.font = '700 20px "Microsoft YaHei"';
+      ctx.font = '700 22px "Microsoft YaHei"';
       ctx.textAlign = 'center';
-      ctx.fillText('拉杆弹珠机', board.width / 2, 42);
+      ctx.fillText('拉杆弹珠机', board.width / 2, 46);
+
+      ctx.fillStyle = '#294a7a';
+      board.walls.forEach((wall) => {
+        ctx.fillRect(wall.x, wall.y, wall.w, wall.h);
+      });
 
       board.pegs.forEach((peg) => {
         ctx.beginPath();
@@ -137,29 +176,31 @@
         ctx.fill();
       });
 
-      const floorY = board.height - 82;
+      const floorY = board.height - 85;
       ctx.fillStyle = '#152743';
-      ctx.fillRect(0, floorY, board.width, 82);
+      ctx.fillRect(0, floorY, board.width, 85);
 
       board.slots.forEach((slot) => {
-        ctx.fillStyle = slot.jackpot ? '#ffd44d' : '#7bb1ff';
-        ctx.fillRect(slot.x, floorY, slot.w, 82);
+        ctx.fillStyle = slot.miss ? '#3a4964' : slot.jackpot ? '#ffd44d' : '#7bb1ff';
+        ctx.fillRect(slot.x, floorY, slot.w, 85);
         ctx.strokeStyle = '#203c6b';
         ctx.lineWidth = 2;
-        ctx.strokeRect(slot.x, floorY, slot.w, 82);
-        ctx.fillStyle = '#10203a';
-        ctx.font = '700 16px sans-serif';
-        ctx.fillText(slot.jackpot ? '大奖' : `${slot.reward}分`, slot.x + slot.w / 2, floorY + 45);
+        ctx.strokeRect(slot.x, floorY, slot.w, 85);
+        ctx.fillStyle = slot.miss ? '#d8e0ef' : '#10203a';
+        ctx.font = '700 13px sans-serif';
+        ctx.fillText(slot.label, slot.x + slot.w / 2, floorY + 33);
+        ctx.font = '700 12px sans-serif';
+        const rangeText = slot.miss ? '0分' : `${slot.range[0]}~${slot.range[1]}`;
+        ctx.fillText(rangeText, slot.x + slot.w / 2, floorY + 56);
       });
 
       ctx.fillStyle = '#95bdfc';
       ctx.font = '700 14px sans-serif';
-      ctx.fillText(`总得分：${score}`, board.width / 2, board.height - 6);
+      ctx.fillText(`第 ${round} 发`, board.width / 2, board.height - 8);
 
-      // 拉杆视觉反馈（点击时压缩）
-      const leverX = board.width - 18;
-      const leverTop = 82 + pullAnim * 10;
-      const leverBottom = 155 + pullAnim * 10;
+      const leverX = board.width - 17;
+      const leverTop = 90 + pullAnim * 12;
+      const leverBottom = 166 + pullAnim * 12;
       ctx.strokeStyle = '#f3b23e';
       ctx.lineWidth = 6;
       ctx.beginPath();
@@ -167,7 +208,7 @@
       ctx.lineTo(leverX, leverBottom);
       ctx.stroke();
       ctx.beginPath();
-      ctx.arc(leverX, leverBottom + 9, 8, 0, Math.PI * 2);
+      ctx.arc(leverX, leverBottom + 10, 8, 0, Math.PI * 2);
       ctx.fillStyle = '#ffcf5f';
       ctx.fill();
 
@@ -183,36 +224,46 @@
     }
 
     function launchBall() {
-      if (ball.active) return;
+      if (ball.active || ammo <= 0) return;
+      ammo -= 1;
+      round += 1;
       ball.active = true;
-      ball.x = board.width / 2 + (Math.random() - 0.5) * 26;
-      ball.y = 38;
-      ball.vx = (Math.random() - 0.5) * 1.6;
-      ball.vy = 1.2;
+      ball.x = board.width / 2 + (Math.random() - 0.5) * 20;
+      ball.y = 56;
+      ball.vx = (Math.random() - 0.5) * 2.2;
+      ball.vy = 1.4;
       pullAnim = 1;
-      statusEl.textContent = '弹珠已发射，等待落点...';
-      launchBtn.disabled = true;
+      statusEl.textContent = `第 ${round} 发：弹珠发射，等待落袋...`;
+      updateHud();
       setTimeout(() => {
         pullAnim = 0;
       }, 120);
     }
 
     function settleResult() {
-      const floorY = board.height - 82;
+      const floorY = board.height - 85;
       const slot = board.slots.find((item) => ball.x >= item.x && ball.x <= item.x + item.w);
-      let message = '未中，再试一次！';
-      if (slot) {
-        score += slot.reward;
+      let thisGain = 0;
+      let message = '漏球，未得分。';
+
+      if (slot && !slot.miss) {
+        thisGain = randomInRange(slot.range[0], slot.range[1]);
+        score += thisGain;
         if (slot.jackpot) {
-          message = `🎉 中奖！获得大奖 +${slot.reward} 分`;
+          message = `🎉 大奖区命中！随机得分 +${thisGain}`;
         } else {
-          message = `命中得分槽：+${slot.reward} 分`;
+          message = `${slot.label}命中！随机得分 +${thisGain}`;
         }
       }
+
+      if (ammo <= 0 && !ball.active) {
+        message += ` 弹珠已耗尽，最终得分 ${score}。`;
+      }
+
       statusEl.textContent = `${message}（当前 ${score} 分）`;
       ball.active = false;
       ball.y = floorY - ball.r;
-      launchBtn.disabled = false;
+      updateHud();
     }
 
     function updateBall() {
@@ -222,9 +273,9 @@
       ball.x += ball.vx;
       ball.y += ball.vy;
 
-      if (ball.x < ball.r || ball.x > board.width - ball.r) {
-        ball.vx *= -0.7;
-        ball.x = Math.max(ball.r, Math.min(board.width - ball.r, ball.x));
+      if (ball.x < 30 + ball.r || ball.x > board.width - 30 - ball.r) {
+        ball.vx *= -0.75;
+        ball.x = Math.max(30 + ball.r, Math.min(board.width - 30 - ball.r, ball.x));
       }
 
       board.pegs.forEach((peg) => {
@@ -233,20 +284,21 @@
         const dist = Math.hypot(dx, dy);
         const minDist = ball.r + peg.r;
         if (dist < minDist) {
-          const nx = dx / dist;
-          const ny = dy / dist;
+          const nx = dx / (dist || 1);
+          const ny = dy / (dist || 1);
           const overlap = minDist - dist;
           ball.x += nx * overlap;
           ball.y += ny * overlap;
           const dot = ball.vx * nx + ball.vy * ny;
-          ball.vx -= 1.7 * dot * nx;
-          ball.vy -= 1.7 * dot * ny;
-          ball.vx += (Math.random() - 0.5) * 0.35;
+          ball.vx -= 1.8 * dot * nx;
+          ball.vy -= 1.8 * dot * ny;
+          ball.vx += (Math.random() - 0.5) * 0.4;
+          ball.vx = Math.max(-2.5, Math.min(2.5, ball.vx));
           ball.vy = Math.max(ball.vy, 0.4);
         }
       });
 
-      if (ball.y >= board.height - 82 - ball.r) {
+      if (ball.y >= board.height - 85 - ball.r) {
         settleResult();
       }
     }
@@ -258,6 +310,7 @@
     }
 
     setupPegs();
+    updateHud();
     drawMachine();
     tick();
 
